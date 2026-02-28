@@ -4,15 +4,34 @@ import pdfplumber
 import pandas as pd
 import re
 import io
+from datetime import datetime, timedelta
 
-# Set up the webpage tab and layout
-st.set_page_config(page_title="KISS Tracker", page_icon="🚆", layout="centered")
+# Set up the webpage tab and layout (Wide layout fits 4 columns better)
+st.set_page_config(page_title="KISS Tracker", page_icon="🚆", layout="wide")
 
-# Draw the title on the screen
-st.title("🚆 Debrecen KISS Train Tracker")
+st.title("🚆 Debrecen & Karcag KISS Train Tracker")
 st.write("Fetching the latest schedule directly from the MÁV website...")
 
-@st.cache_data(ttl=3600) # Caches the data for an hour so it loads fast
+# Helper function to do the time math safely
+def adjust_train_time(time_string, add_start_mins=0, sub_end_mins=0):
+    try:
+        # Split "07:25 - 10:23" into start and end parts
+        start_str, end_str = time_string.split("-")
+        start_time = datetime.strptime(start_str.strip(), "%H:%M")
+        end_time = datetime.strptime(end_str.strip(), "%H:%M")
+        
+        # Apply the math
+        if add_start_mins:
+            start_time += timedelta(minutes=add_start_mins)
+        if sub_end_mins:
+            end_time -= timedelta(minutes=sub_end_mins)
+            
+        return f"{start_time.strftime('%H:%M')} - {end_time.strftime('%H:%M')}"
+    except Exception:
+        # If the format is weird, just return the original string
+        return time_string
+
+@st.cache_data(ttl=3600)
 def get_schedule():
     url = "https://www.mavcsoport.hu/sites/default/files/upload/page/kiss_100_vonal.pdf"
     headers = {'User-Agent': 'Mozilla/5.0'}
@@ -80,7 +99,7 @@ def get_schedule():
 
     clean_df = pd.DataFrame(final_data)
     if not clean_df.empty:
-        clean_df = clean_df.sort_values(by=["Date", "Time"]) # Removed Route from sorting so times stay in order
+        clean_df = clean_df.sort_values(by=["Date", "Time"])
         return clean_df, "Success"
     return None, "No Debrecen KISS trains found for these dates."
 
@@ -91,22 +110,36 @@ with st.spinner("Downloading and parsing PDF... this takes a few seconds..."):
 if train_data is not None:
     st.success(f"Found {len(train_data)} trains!")
     
-    # Split the data into two separate lists
-    route1 = "Budapest-Nyugati - Debrecen"
-    route2 = "Debrecen - Budapest-Nyugati"
+    # 1. Prepare the Budapest Data
+    df_bp_to_deb = train_data[train_data["Route"] == "Budapest-Nyugati - Debrecen"].drop(columns=["Route"]).copy()
+    df_deb_to_bp = train_data[train_data["Route"] == "Debrecen - Budapest-Nyugati"].drop(columns=["Route"]).copy()
     
-    # Filter the data and drop the 'Route' column since we don't need to display it anymore
-    df_bp_to_deb = train_data[train_data["Route"] == route1].drop(columns=["Route"])
-    df_deb_to_bp = train_data[train_data["Route"] == route2].drop(columns=["Route"])
+    # 2. Prepare the Karcag Data (using copies of the Budapest data)
+    df_karcag_to_deb = df_bp_to_deb.copy()
+    df_deb_to_karcag = df_deb_to_bp.copy()
     
-    # Create two columns side-by-side
-    col1, col2 = st.columns(2)
+    # Karcag -> Debrecen: Add 2 hours 12 mins (132 minutes) to START time
+    df_karcag_to_deb["Time"] = df_karcag_to_deb["Time"].apply(lambda t: adjust_train_time(t, add_start_mins=132))
+    
+    # Debrecen -> Karcag: Subtract 2 hours 11 mins (131 minutes) from END time
+    df_deb_to_karcag["Time"] = df_deb_to_karcag["Time"].apply(lambda t: adjust_train_time(t, sub_end_mins=131))
+
+    # 3. Draw the layout with 4 columns
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
+        st.subheader("Karcag ➔ Debrecen")
+        st.dataframe(df_karcag_to_deb, use_container_width=True, hide_index=True)
+        
+    with col2:
+        st.subheader("Debrecen ➔ Karcag")
+        st.dataframe(df_deb_to_karcag, use_container_width=True, hide_index=True)
+        
+    with col3:
         st.subheader("Budapest ➔ Debrecen")
         st.dataframe(df_bp_to_deb, use_container_width=True, hide_index=True)
         
-    with col2:
+    with col4:
         st.subheader("Debrecen ➔ Budapest")
         st.dataframe(df_deb_to_bp, use_container_width=True, hide_index=True)
 
