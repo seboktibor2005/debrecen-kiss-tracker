@@ -5,8 +5,8 @@ import pandas as pd
 import re
 import io
 
-# Set up the webpage tab
-st.set_page_config(page_title="KISS Tracker", page_icon="🚆")
+# Set up the webpage tab and layout
+st.set_page_config(page_title="KISS Tracker", page_icon="🚆", layout="centered")
 
 # Draw the title on the screen
 st.title("🚆 Debrecen KISS Train Tracker")
@@ -80,7 +80,7 @@ def get_schedule():
 
     clean_df = pd.DataFrame(final_data)
     if not clean_df.empty:
-        clean_df = clean_df.sort_values(by=["Date", "Route", "Time"])
+        clean_df = clean_df.sort_values(by=["Date", "Time"]) # Removed Route from sorting so times stay in order
         return clean_df, "Success"
     return None, "No Debrecen KISS trains found for these dates."
 
@@ -90,7 +90,25 @@ with st.spinner("Downloading and parsing PDF... this takes a few seconds..."):
 
 if train_data is not None:
     st.success(f"Found {len(train_data)} trains!")
-    # Draw the interactive table
-    st.dataframe(train_data, use_container_width=True, hide_index=True)
+    
+    # Split the data into two separate lists
+    route1 = "Budapest-Nyugati - Debrecen"
+    route2 = "Debrecen - Budapest-Nyugati"
+    
+    # Filter the data and drop the 'Route' column since we don't need to display it anymore
+    df_bp_to_deb = train_data[train_data["Route"] == route1].drop(columns=["Route"])
+    df_deb_to_bp = train_data[train_data["Route"] == route2].drop(columns=["Route"])
+    
+    # Create two columns side-by-side
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("Budapest ➔ Debrecen")
+        st.dataframe(df_bp_to_deb, use_container_width=True, hide_index=True)
+        
+    with col2:
+        st.subheader("Debrecen ➔ Budapest")
+        st.dataframe(df_deb_to_bp, use_container_width=True, hide_index=True)
+
 else:
     st.error(message)
